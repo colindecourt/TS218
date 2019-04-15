@@ -19,4 +19,4 @@ Sous mac-OSX :
 Dans ces lignes, le parametre vb (video bitrate en kbits/s) peut vous servir à régler la qualité de l'image après encodage. Il existe aussi un parametre ab (audio bit rate). Vous trouverez plus d'information à l'adresse https://wiki.videolan.org/Transcode/.
 
 
-© www.github/rtajan/TS218
+© https://github.com/rtajan/TS218
