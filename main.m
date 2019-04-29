@@ -24,7 +24,20 @@ channel_params  = configure_channel(0:10,0); % LEs paramètres du canal
 [mod_psk, demod_psk]           = build_mdm(waveform_params); % Construction des modems
 dvb_scramble                   = build_dvb_scramble(); %Construction du scrambler
 [awgn_channel, doppler, channel_delay] = build_channel(channel_params, waveform_params); % Blocs du canal
-stat_erreur = comm.ErrorRate('ReceiveDelay', 0, 'ComputationDelay',0); % Calcul du nombre d'erreur et du BER
+stat_erreur = comm.ErrorRate('ReceiveDelay', 1504*8, 'ComputationDelay',1504*8); % Calcul du nombre d'erreur et du BER
+
+raised_cos_filter_trans = comm.RaisedCosineTransmitFilter('Shape', 'Square root',...
+    'RolloffFactor', 0.35, ...
+    'FilterSpanInSymbols', 16,...
+    'OutputSamplesPerSymbol',waveform_params.sim.Fse); % 16 est 2*Tg qui correspond au span
+
+raised_cos_filter_rec = comm.RaisedCosineReceiveFilter('Shape', 'Square root', ...
+    'RolloffFactor', 0.35,...
+    'FilterSpanInSymbols', 16,...
+    'InputSamplesPerSymbol',waveform_params.sim.Fse, ...
+    'DecimationFactor', waveform_params.sim.Fse);
+
+vid = dsp.VariableIntegerDelay('MaximumDelay', 1504*8);
 
 % Conversions octet <-> bits
 o2b = OctToBit();
@@ -58,18 +71,21 @@ for i_snr = 1:length(channel_params.EbN0dB)
 			tx_scr_oct = bitxor(tx_oct,dvb_scramble); % scrambler
 			tx_scr_bit = step(o2b,tx_scr_oct); % Octets -> Bits
 			tx_sym     = step(mod_psk,  tx_scr_bit); % Modulation QPSK
-			
+			gt = step(raised_cos_filter_trans,tx_sym);
 			%% Canal
-			tx_sps_dpl = step(doppler, tx_sym); % Simulation d'un effet Doppler
+			tx_sps_dpl = step(doppler, gt); % Simulation d'un effet Doppler
 			rx_sps_del = step(channel_delay, tx_sps_dpl, channel_params.Delai); % Ajout d'un retard de propagation
 			rx_sps     = step(awgn_channel,channel_params.Gain * rx_sps_del); % Ajout d'un bruit gaussien
 			
 			%% Recepteur
-			rx_scr_llr = step(demod_psk,rx_sps);% Ce bloc nous renvoie des LLR (meilleur si on va interface avec du codage)			
+            ga = step(raised_cos_filter_rec, rx_sps);
+			rx_scr_llr = step(demod_psk,ga);% Ce bloc nous renvoie des LLR (meilleur si on va interface avec du codage)			
 			rx_scr_bit = rx_scr_llr<0; % Bits
-			rx_scr_oct = step(b2o,rx_scr_bit); % Conversion en octet pour le scrambler
+            rx_scr_bit_d = step(vid, rx_scr_bit, 1500*8);
+			rx_scr_oct = step(b2o,rx_scr_bit_d); % Conversion en octet pour le scrambler
 			% Attention à la synchro ici
 			rx_oct     = bitxor(rx_scr_oct,dvb_scramble); % descrambler
+            
 			
 			%% Compate des erreurs binaires
 			tx_bit     = step(o2b,tx_oct);
@@ -78,7 +94,7 @@ for i_snr = 1:length(channel_params.EbN0dB)
 			
 			%% Destination
 			if bool_store_rec_video
-				step(message_destination, rx_oct); % Ecriture du fichier
+				step(message_destination, rx_oct_dec); % Ecriture du fichier
 			end
 		end
 	end
