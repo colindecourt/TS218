@@ -5,7 +5,7 @@ function waveform_params = configure_waveform(varargin)
 % WAVEFORM_PARAMS = CONFIGURE_WAVEFORM(FE, M, PHI0)
 % construit WAVEFORM_PARAMS a partir des parametres suivants :
 % FE : frequence d'echantillonnage (canal) - DEFAUT 1e6
-% M : Ordre de la PSK (2, 4 ou 8) - DEFAUT 4
+% M : Ordre de la PSK (2, 4 ou ? - DEFAUT 4
 % PHI0 : Phase initiale de la PSK  - DEFAUT pi/4
 
 
@@ -14,21 +14,25 @@ if nargin < 1
 else
     Fe = varargin{1};
 end
-
 if nargin < 2
+    Ds = Fe;
+else
+    Ds = varargin{2};
+end
+if nargin < 3
     M=4;
 else
-    M = varargin{2};
+    M = varargin{3};
 end
 
-if nargin < 3
+if nargin < 4
     phi0=pi/4;
 else
-    phi0 = varargin{3};
+    phi0 = varargin{4};
 end
 
 waveform_params.sim.Fe = Fe;        % Frequence d'echantillonnage
-waveform_params.sim.Ds = Fe; % Sampling frequency (Hz)
+waveform_params.sim.Ds = Ds; % Sampling frequency (Hz)
 
 Fse = floor(waveform_params.sim.Fe/waveform_params.sim.Ds);
 
@@ -46,7 +50,7 @@ switch M
 end
 waveform_params.demod.Name = waveform_params.mod.Name;
 
-% Parametres de la modulation numérique
+% Parametres de la modulation num?rique
 % -------------------------------------------------------------------------
 waveform_params.mod.ModulationOrder = M; % Taille de la modulation
 waveform_params.mod.ModulationBPS   = log2(waveform_params.mod.ModulationOrder); % Nombre de bits par symboles
@@ -56,7 +60,7 @@ waveform_params.mod.BitInput        = true;
 % -------------------------------------------------------------------------
 
 
-% Parametres de la modulation numérique
+% Parametres de la modulation num?rique
 % -------------------------------------------------------------------------
 waveform_params.demod.ModulationOrder = M; % Taille de la modulation
 waveform_params.demod.ModulationBPS   = log2(waveform_params.demod.ModulationOrder); % Nombre de bits par symboles
@@ -66,4 +70,3 @@ waveform_params.demod.BitOutput        = true;
 waveform_params.demod.DecisionMethod  = 'Log-likelihood ratio';
 waveform_params.demod.Variance        = 1;
 % -------------------------------------------------------------------------
-

@@ -7,7 +7,8 @@ clc
 % -------------------------------------------------------------------------
 tx_vid_fname = 'tx_stream.ts';  % Fichier contenant le message ï¿½ transmettre
 rx_vid_prefix = 'rx_stream';  % Fichier contenant le message ï¿½ transmettre
-
+Fe = 1e6;
+Ds = 250e3;
 msg_oct_sz     = 188;
 msg_bit_sz     = msg_oct_sz*8; % Taille de la payload des paquets en bits
 pckt_per_frame = 8;
@@ -17,8 +18,8 @@ bool_store_rec_video = false;
 % -------------------------------------------------------------------------
 
 %% Création des structures de paramètres
-waveform_params = configure_waveform(); % Les parametres de la mise en forme
-channel_params  = configure_channel(0:10,0,0,1,0*(waveform_params.sim.Fse)); % LEs paramètres du canal
+waveform_params = configure_waveform(Fe, Ds); % Les parametres de la mise en forme
+channel_params  = configure_channel(0:30,0,0,1,0.1*waveform_params.sim.Fse); % LEs paramètres du canal
 
 %% Création des objets
 [mod_psk, demod_psk]           = build_mdm(waveform_params); % Construction des modems
@@ -98,12 +99,16 @@ for i_snr = 1:length(channel_params.EbN0dB)
         end
     end
     
+   
     ber(i_snr) = err_stat(1);
-    figure(1),semilogy(channel_params.EbN0dB,ber);
-    drawnow
+    if ber(i_snr) > 1e-6
+        figure(1),semilogy(channel_params.EbN0dB,ber);
+        drawnow
+    end
    
 end
 hold all
+
 semilogy(channel_params.EbN0dB,Pe);
 
 %% Tracé des constellations sans synchronisation pour EbN0dB = 100
