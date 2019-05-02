@@ -15,17 +15,20 @@ pckt_per_frame = 8;
 frame_oct_sz   = pckt_per_frame * msg_oct_sz;
 frame_bit_sz   = 8*frame_oct_sz; % Une trame = 8 paquets
 bool_store_rec_video = false;
+mu =10;
+            
 % -------------------------------------------------------------------------
 
-%% Création des structures de paramètres
+tau_init=0;
+%% Crï¿½ation des structures de paramï¿½tres
 waveform_params = configure_waveform(Fe, Ds); % Les parametres de la mise en forme
-channel_params  = configure_channel(0:30,0,0,1,0.1*waveform_params.sim.Fse); % LEs paramètres du canal
+channel_params  = configure_channel(0:10,deg2rad(50),0,1,tau_init*waveform_params.sim.Fse); % LEs paramï¿½tres du canal
 
-%% Création des objets
+%% Crï¿½ation des objets
 [mod_psk, demod_psk]           = build_mdm(waveform_params); % Construction des modems
 dvb_scramble                   = build_dvb_scramble(); %Construction du scrambler
 [awgn_channel, doppler, channel_delay] = build_channel(channel_params, waveform_params); % Blocs du canal
-stat_erreur = comm.ErrorRate('ReceiveDelay', 1504*8, 'ComputationDelay',1504*8); % Calcul du nombre d'erreur et du BER
+stat_erreur = comm.ErrorRate('ReceiveDelay', 1504*8, 'ComputationDelay',72192); % Calcul du nombre d'erreur et du BER
 
 raised_cos_filter_trans = comm.RaisedCosineTransmitFilter('Shape', 'Square root',...
     'RolloffFactor', 0.35, ...
@@ -36,7 +39,7 @@ raised_cos_filter_rec = comm.RaisedCosineReceiveFilter('Shape', 'Square root', .
     'RolloffFactor', 0.35,...
     'FilterSpanInSymbols', 16,...
     'InputSamplesPerSymbol',waveform_params.sim.Fse, ...
-    'DecimationFactor', waveform_params.sim.Fse);
+    'DecimationFactor',1);
 
 vid = dsp.VariableIntegerDelay('MaximumDelay', 1504*8);
 
@@ -44,9 +47,9 @@ vid = dsp.VariableIntegerDelay('MaximumDelay', 1504*8);
 o2b = OctToBit();
 b2o = BitToOct();
 
-% Lecture octet par octet du fichier vidéo d'entree
+% Lecture octet par octet du fichier vidï¿½o d'entree
 message_source      = BinaryFileReader('Filename', tx_vid_fname, 'SamplesPerFrame', msg_oct_sz*pckt_per_frame, 'DataType', 'uint8');
-% Ecriture octet par octet du fichier vidéo de sortie
+% Ecriture octet par octet du fichier vidï¿½o de sortie
 message_destination = BinaryFileWriter('DataType','uint8');
 
 %%
@@ -54,12 +57,14 @@ ber = zeros(1,length(channel_params.EbN0dB));
 Pe = qfunc(sqrt(2*channel_params.EbN0));
 
 for i_snr = 1:length(channel_params.EbN0dB)
+    tau  = 0;
+    
     if bool_store_rec_video
         message_destination.release;
         message_destination.Filename = [rx_vid_prefix, num2str(channel_params.EbN0dB(i_snr)),'dB.ts'];
     end
     
-    awgn_channel.EbNo=channel_params.EbN0dB(i_snr);% Mise à jour du EbN0 pour le canal
+    awgn_channel.EbNo=channel_params.EbN0dB(i_snr);% Mise ï¿½ jour du EbN0 pour le canal
     
     stat_erreur.reset; % reset du compteur d'erreur
     err_stat = [0 0 0];
@@ -72,22 +77,40 @@ for i_snr = 1:length(channel_params.EbN0dB)
             tx_scr_oct = bitxor(tx_oct,dvb_scramble); % scrambler
             tx_scr_bit = step(o2b,tx_scr_oct); % Octets -> Bits
             tx_sym     = step(mod_psk,  tx_scr_bit); % Modulation QPSK
+            Ns = length(tx_sym);
             gt = step(raised_cos_filter_trans,tx_sym);
             %% Canal
             tx_sps_dpl = step(doppler, gt); % Simulation d'un effet Doppler
             rx_sps_del = step(channel_delay, tx_sps_dpl, channel_params.Delai); % Ajout d'un retard de propagation
             rx_sps     = step(awgn_channel,channel_params.Gain * rx_sps_del); % Ajout d'un bruit gaussien
+            
+            % filtre adaptÃ©
+            rl = step(raised_cos_filter_rec, rx_sps);
+            
+            
+            %% synchro temporelle
+        %    [tau,r_n] = synch_temp(ga,waveform_params.sim.Fse);
+            rle = [zeros(waveform_params.sim.Fse,1); rl; zeros(waveform_params.sim.Fse,1)];
+            int_tau = floor(tau);
+            te = waveform_params.sim.Fse + (1:waveform_params.sim.Fse:(1+(Ns-1)*waveform_params.sim.Fse)) + int_tau;
+            frac_tau = tau - int_tau;
+            r_n = rle(te)*(1-frac_tau) + rle(te + 1)*frac_tau;
+            r_nd = 0.707*(sign(real(r_n)) + 1i * sign(imag(r_n)));
+            err = r_n - r_nd;
+            drl = 0.5*(1 - frac_tau)*(rle(te+1)-rle(te-1)) + 0.5*frac_tau*(rle(te+2)-rle(te));
+            tau = tau - mu * real(err'*drl/Ns);
+
+            
             %% Recepteur
-            ga = step(raised_cos_filter_rec, rx_sps);
-            rx_scr_llr = step(demod_psk,ga);% Ce bloc nous renvoie des LLR (meilleur si on va interface avec du codage)
+            rx_scr_llr = step(demod_psk,r_nd);% Ce bloc nous renvoie des LLR (meilleur si on va interface avec du codage)
             rx_scr_bit = rx_scr_llr<0; % Bits
             rx_scr_bit_d = step(vid, rx_scr_bit, 1500*8);
             rx_scr_oct = step(b2o,rx_scr_bit_d); % Conversion en octet pour le scrambler
-            % Attention à la synchro ici
+            % Attention ï¿½ la synchro ici
             rx_oct     = bitxor(rx_scr_oct,dvb_scramble); % descrambler
             
             
-            %% Compate des erreurs binaires
+            %% Compare des erreurs binaires
             tx_bit     = step(o2b,tx_oct);
             rx_bit     = step(o2b,rx_oct);
             err_stat   = step(stat_erreur, tx_bit, rx_bit);
@@ -108,9 +131,19 @@ for i_snr = 1:length(channel_params.EbN0dB)
    
 end
 hold all
+c=0;
+for i=1:length(Pe)
+    if Pe(i) > 1e-6
+        c = c+1;
+    end
+end
+semilogy(channel_params.EbN0dB(1:c),Pe(1:c));
 
-semilogy(channel_params.EbN0dB,Pe);
 
-%% Tracé des constellations sans synchronisation pour EbN0dB = 100
+% constellation r_n
+scatterplot(r_n);
+%constellation a_n
+scatterplot(tx_sym);
+%% Tracï¿½ des constellations sans synchronisation pour EbN0dB = 100
 
-
+%save('teb_0.4ts_avec_synT_EbN0.mat','c', 'Pe','channel_params', 'ber');
