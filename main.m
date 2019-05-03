@@ -20,10 +20,10 @@ mu =10;
 % -------------------------------------------------------------------------
 
 tau_init=0;
-phi = 50; % en degré
+phi = 0; % en degrï¿½
 %% Crï¿½ation des structures de paramï¿½tres
 waveform_params = configure_waveform(Fe, Ds); % Les parametres de la mise en forme
-channel_params  = configure_channel(0:30,deg2rad(phi),0,1,0); % LEs paramï¿½tres du canal
+channel_params  = configure_channel(100:100,100000,0,1,0); % LEs paramï¿½tres du canal
 
 %% Crï¿½ation des objets
 [mod_psk, demod_psk]           = build_mdm(waveform_params); % Construction des modems
@@ -87,6 +87,7 @@ for i_snr = 1:length(channel_params.EbN0dB)
             
             % filtre adaptÃ©
             rl = step(raised_cos_filter_rec, rx_sps);
+            RL = abs(fftshift(fft(rl,1024))).^2;
             
             
             %% synchro temporelle
@@ -138,13 +139,20 @@ for i=1:length(Pe)
         c = c+1;
     end
 end
+Nfft = 1024;
 semilogy(channel_params.EbN0dB(1:c),Pe(1:c));
-
-
+[pxx,f] =pwelch(rx_sps, hanning(Nfft), 0, Nfft, Fe, 'centered');
+figure;
+plot(f,10*log(pxx/sum(pxx)))
+hold on
+plot(f,10*log(RL/sum(RL)))
+xlabel('Frequency')
+ylabel('Magnitude')
+legend('Reponse en frequence du filtre de reception', 'Periodogramme du signal en sortie du canal')
 % constellation r_n
 scatterplot(r_n);
 %constellation a_n
 scatterplot(tx_sym);
 %% Tracï¿½ des constellations sans synchronisation pour EbN0dB = 100
 
-save('teb_phi50_sans_syn.mat','c', 'Pe','channel_params', 'ber');
+%save('teb_phi50_sans_syn.mat','c', 'Pe','channel_params', 'ber');
