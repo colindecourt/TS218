@@ -20,9 +20,10 @@ mu =10;
 % -------------------------------------------------------------------------
 
 tau_init=0;
+phi = 50; % en degré
 %% Crï¿½ation des structures de paramï¿½tres
 waveform_params = configure_waveform(Fe, Ds); % Les parametres de la mise en forme
-channel_params  = configure_channel(0:10,deg2rad(50),0,1,tau_init*waveform_params.sim.Fse); % LEs paramï¿½tres du canal
+channel_params  = configure_channel(0:30,deg2rad(phi),0,1,0); % LEs paramï¿½tres du canal
 
 %% Crï¿½ation des objets
 [mod_psk, demod_psk]           = build_mdm(waveform_params); % Construction des modems
@@ -146,4 +147,4 @@ scatterplot(r_n);
 scatterplot(tx_sym);
 %% Tracï¿½ des constellations sans synchronisation pour EbN0dB = 100
 
-%save('teb_0.4ts_avec_synT_EbN0.mat','c', 'Pe','channel_params', 'ber');
+save('teb_phi50_sans_syn.mat','c', 'Pe','channel_params', 'ber');
