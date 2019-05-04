@@ -16,6 +16,7 @@ frame_oct_sz   = pckt_per_frame * msg_oct_sz;
 frame_bit_sz   = 8*frame_oct_sz; % Une trame = 8 paquets
 bool_store_rec_video = false;
 mu =10;
+Nfft = 1024;
             
 % -------------------------------------------------------------------------
 
@@ -23,7 +24,7 @@ tau_init=0;
 phi = 0; % en degr�
 %% Cr�ation des structures de param�tres
 waveform_params = configure_waveform(Fe, Ds); % Les parametres de la mise en forme
-channel_params  = configure_channel(100:100,100000,0,1,0); % LEs param�tres du canal
+channel_params  = configure_channel(0:10,10021,60,1,0); % LEs param�tres du canal
 
 %% Cr�ation des objets
 [mod_psk, demod_psk]           = build_mdm(waveform_params); % Construction des modems
@@ -41,6 +42,12 @@ raised_cos_filter_rec = comm.RaisedCosineReceiveFilter('Shape', 'Square root', .
     'FilterSpanInSymbols', 16,...
     'InputSamplesPerSymbol',waveform_params.sim.Fse, ...
     'DecimationFactor',1);
+
+synch = comm.CarrierSynchronizer(...
+  'Modulation',                  'QPSK', ...
+  'SamplesPerSymbol', waveform_params.sim.Fse, ...
+  'DampingFactor',sqrt(2)/2, ...
+  'NormalizedLoopBandwidth', 0.005);
 
 vid = dsp.VariableIntegerDelay('MaximumDelay', 1504*8);
 
@@ -80,19 +87,31 @@ for i_snr = 1:length(channel_params.EbN0dB)
             tx_sym     = step(mod_psk,  tx_scr_bit); % Modulation QPSK
             Ns = length(tx_sym);
             gt = step(raised_cos_filter_trans,tx_sym);
+            RL = abs(fftshift(fft(gt,1024))).^2;
             %% Canal
             tx_sps_dpl = step(doppler, gt); % Simulation d'un effet Doppler
             rx_sps_del = step(channel_delay, tx_sps_dpl, channel_params.Delai); % Ajout d'un retard de propagation
             rx_sps     = step(awgn_channel,channel_params.Gain * rx_sps_del); % Ajout d'un bruit gaussien
             
-            % filtre adapté
-            rl = step(raised_cos_filter_rec, rx_sps);
-            RL = abs(fftshift(fft(rl,1024))).^2;
+            %% Synchro fréquentielle
+            [pxx,f] =pwelch(rx_sps.^4, hanning(Nfft), 0, Nfft, Fe, 'centered');
+            [MAX, Ind] = max(pxx);
+            t = (1:length(rx_sps))/Fe;
+            
+            F_gross = f(Ind)/4;
+            
+            
+            %% filtre adapté
+            rl = step(raised_cos_filter_rec,rx_sps.*exp(-1i*2*pi*F_gross*t'));
+           
+            %% Synchro fine  
+            
+            R = synch(rl);
             
             
             %% synchro temporelle
         %    [tau,r_n] = synch_temp(ga,waveform_params.sim.Fse);
-            rle = [zeros(waveform_params.sim.Fse,1); rl; zeros(waveform_params.sim.Fse,1)];
+            rle = [zeros(waveform_params.sim.Fse,1); R; zeros(waveform_params.sim.Fse,1)];
             int_tau = floor(tau);
             te = waveform_params.sim.Fse + (1:waveform_params.sim.Fse:(1+(Ns-1)*waveform_params.sim.Fse)) + int_tau;
             frac_tau = tau - int_tau;
@@ -139,9 +158,9 @@ for i=1:length(Pe)
         c = c+1;
     end
 end
-Nfft = 1024;
+
 semilogy(channel_params.EbN0dB(1:c),Pe(1:c));
-[pxx,f] =pwelch(rx_sps, hanning(Nfft), 0, Nfft, Fe, 'centered');
+
 figure;
 plot(f,10*log(pxx/sum(pxx)))
 hold on
@@ -149,6 +168,7 @@ plot(f,10*log(RL/sum(RL)))
 xlabel('Frequency')
 ylabel('Magnitude')
 legend('Reponse en frequence du filtre de reception', 'Periodogramme du signal en sortie du canal')
+title('Superposition periodogramme de Welch en sortie du canal et en sortie du filtre de reception')
 % constellation r_n
 scatterplot(r_n);
 %constellation a_n
