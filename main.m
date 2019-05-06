@@ -17,7 +17,7 @@ frame_bit_sz   = 8*frame_oct_sz; % Une trame = 8 paquets
 bool_store_rec_video = false;
 mu =0;
 Nfft = 1024;
-            
+
 % -------------------------------------------------------------------------
 
 tau_init=0;
@@ -44,9 +44,9 @@ raised_cos_filter_rec = comm.RaisedCosineReceiveFilter('Shape', 'Square root', .
     'DecimationFactor',1);
 
 synch = comm.CarrierSynchronizer(...
-  'Modulation', 'QPSK', ...
-  'SamplesPerSymbol', waveform_params.sim.Fse, ...
-  'NormalizedLoopBandwidth', 0.005);
+    'Modulation', 'QPSK', ...
+    'SamplesPerSymbol', waveform_params.sim.Fse, ...
+    'NormalizedLoopBandwidth', 0.005);
 
 vid = dsp.VariableIntegerDelay('MaximumDelay', 1504*8);
 
@@ -71,17 +71,16 @@ for i_snr = 1:length(channel_params.EbN0dB)
         message_destination.Filename = [rx_vid_prefix, num2str(channel_params.EbN0dB(i_snr)),'dB.ts'];
     end
     
-
+    
     awgn_channel.EbNo=channel_params.EbN0dB(i_snr);% Mise ï¿½ jour du EbN0 pour le canal
     
     stat_erreur.reset; % reset du compteur d'erreur
     err_stat = [0 0 0];
-    while (err_stat(2) < 1000 && err_stat(3) < 1e6)
+    while (err_stat(2) < 100 && err_stat(3) < 1e6)
         message_source.reset;
         message_destination.reset;
         t0 = 0;
         while(~message_source.isDone)
-            
             %% Emetteur
             tx_oct     = step(message_source); % Lire une trame
             tx_scr_oct = bitxor(tx_oct,dvb_scramble); % scrambler
@@ -105,8 +104,8 @@ for i_snr = 1:length(channel_params.EbN0dB)
             
             %% filtre adaptÃ©
             rl = step(raised_cos_filter_rec,rx_sps.*exp(-1i*2*pi*F_gross*t'));
-           
-            %% Synchro fine  
+            
+            %% Synchro fine
             
             R = synch(rl);
             
@@ -121,17 +120,18 @@ for i_snr = 1:length(channel_params.EbN0dB)
             err = r_n - r_nd;
             drl = 0.5*(1 - frac_tau)*(rle(te+1)-rle(te-1)) + 0.5*frac_tau*(rle(te+2)-rle(te));
             tau = tau - mu * real(err'*drl/Ns);
-
+            
             
             %% Recepteur
+            
+            
             ejphi = 0;
             for ii = 1:8
-            for i=1:4
-                ejphi = ejphi + r_n(16+i+(ii-1)*4*188)*(tx_sym(i+(ii-1)*4*188)');
+                for i=1:4
+                    ejphi = ejphi + r_n(16+i+(ii-1)*4*188)*(tx_sym(i+(ii-1)*4*188)');
+                end
             end
-            end
-            %ejphi = 1/8*ejphi;
-            %phase = log(ejphi);
+            
             r_np = sqrt(32)*r_n/ejphi;
             
             rx_scr_llr = step(demod_psk,r_np);% Ce bloc nous renvoie des LLR (meilleur si on va interface avec du codage)
@@ -146,7 +146,7 @@ for i_snr = 1:length(channel_params.EbN0dB)
             rx_bit     = step(o2b,rx_oct);
             err_stat   = step(stat_erreur, tx_bit, rx_bit);
             
-
+            
             %% Destination
             if bool_store_rec_video
                 step(message_destination, rx_oct_dec); % Ecriture du fichier
@@ -154,16 +154,16 @@ for i_snr = 1:length(channel_params.EbN0dB)
         end
     end
     
-  % Minimisr fct periodique. Mais autant de minima que de periode lors de
-  % la sgd. Rien ne dit qu'on convferge vers la même perdiode. On a une
-  % rotation de pi/2 a chaque fois ou des fois. 
-   
+    % Minimisr fct periodique. Mais autant de minima que de periode lors de
+    % la sgd. Rien ne dit qu'on convferge vers la même perdiode. On a une
+    % rotation de pi/2 a chaque fois ou des fois.
+    
     ber(i_snr) = err_stat(1);
     if ber(i_snr) > 1e-6
         figure(1),semilogy(channel_params.EbN0dB,ber);
         drawnow
     end
-   
+    
 end
 hold all
 c=0;
