@@ -15,7 +15,7 @@ pckt_per_frame = 8;
 frame_oct_sz   = pckt_per_frame * msg_oct_sz;
 frame_bit_sz   = 8*frame_oct_sz; % Une trame = 8 paquets
 bool_store_rec_video = false;
-mu =10;
+mu =0;
 Nfft = 1024;
             
 % -------------------------------------------------------------------------
@@ -24,13 +24,13 @@ tau_init=0;
 phi = 0; % en degrï¿½
 %% Crï¿½ation des structures de paramï¿½tres
 waveform_params = configure_waveform(Fe, Ds); % Les parametres de la mise en forme
-channel_params  = configure_channel(0:10,10021,60,1,0); % LEs paramï¿½tres du canal
+channel_params  = configure_channel(100,11021,60,1,0); % LEs paramï¿½tres du canal
 
 %% Crï¿½ation des objets
 [mod_psk, demod_psk]           = build_mdm(waveform_params); % Construction des modems
 dvb_scramble                   = build_dvb_scramble(); %Construction du scrambler
 [awgn_channel, doppler, channel_delay] = build_channel(channel_params, waveform_params); % Blocs du canal
-stat_erreur = comm.ErrorRate('ReceiveDelay', 1504*8, 'ComputationDelay',72192); % Calcul du nombre d'erreur et du BER
+stat_erreur = comm.ErrorRate('ReceiveDelay', 1504*8, 'ComputationDelay',1504*8*6); % Calcul du nombre d'erreur et du BER
 
 raised_cos_filter_trans = comm.RaisedCosineTransmitFilter('Shape', 'Square root',...
     'RolloffFactor', 0.35, ...
@@ -44,9 +44,8 @@ raised_cos_filter_rec = comm.RaisedCosineReceiveFilter('Shape', 'Square root', .
     'DecimationFactor',1);
 
 synch = comm.CarrierSynchronizer(...
-  'Modulation',                  'QPSK', ...
+  'Modulation', 'QPSK', ...
   'SamplesPerSymbol', waveform_params.sim.Fse, ...
-  'DampingFactor',sqrt(2)/2, ...
   'NormalizedLoopBandwidth', 0.005);
 
 vid = dsp.VariableIntegerDelay('MaximumDelay', 1504*8);
@@ -72,14 +71,17 @@ for i_snr = 1:length(channel_params.EbN0dB)
         message_destination.Filename = [rx_vid_prefix, num2str(channel_params.EbN0dB(i_snr)),'dB.ts'];
     end
     
+
     awgn_channel.EbNo=channel_params.EbN0dB(i_snr);% Mise ï¿½ jour du EbN0 pour le canal
     
     stat_erreur.reset; % reset du compteur d'erreur
     err_stat = [0 0 0];
-    while (err_stat(2) < 100 && err_stat(3) < 1e6)
+    while (err_stat(2) < 1000 && err_stat(3) < 1e6)
         message_source.reset;
         message_destination.reset;
+        t0 = 0;
         while(~message_source.isDone)
+            
             %% Emetteur
             tx_oct     = step(message_source); % Lire une trame
             tx_scr_oct = bitxor(tx_oct,dvb_scramble); % scrambler
@@ -96,8 +98,8 @@ for i_snr = 1:length(channel_params.EbN0dB)
             %% Synchro frÃ©quentielle
             [pxx,f] =pwelch(rx_sps.^4, hanning(Nfft), 0, Nfft, Fe, 'centered');
             [MAX, Ind] = max(pxx);
-            t = (1:length(rx_sps))/Fe;
-            
+            t = t0+(1:length(rx_sps))/Fe;
+            t0 = t(end) + 1/Fe;
             F_gross = f(Ind)/4;
             
             
@@ -110,7 +112,6 @@ for i_snr = 1:length(channel_params.EbN0dB)
             
             
             %% synchro temporelle
-        %    [tau,r_n] = synch_temp(ga,waveform_params.sim.Fse);
             rle = [zeros(waveform_params.sim.Fse,1); R; zeros(waveform_params.sim.Fse,1)];
             int_tau = floor(tau);
             te = waveform_params.sim.Fse + (1:waveform_params.sim.Fse:(1+(Ns-1)*waveform_params.sim.Fse)) + int_tau;
@@ -123,19 +124,29 @@ for i_snr = 1:length(channel_params.EbN0dB)
 
             
             %% Recepteur
-            rx_scr_llr = step(demod_psk,r_nd);% Ce bloc nous renvoie des LLR (meilleur si on va interface avec du codage)
+            ejphi = 0;
+            for ii = 1:8
+            for i=1:4
+                ejphi = ejphi + r_n(16+i+(ii-1)*4*188)*(tx_sym(i+(ii-1)*4*188)');
+            end
+            end
+            %ejphi = 1/8*ejphi;
+            %phase = log(ejphi);
+            r_np = sqrt(32)*r_n/ejphi;
+            
+            rx_scr_llr = step(demod_psk,r_np);% Ce bloc nous renvoie des LLR (meilleur si on va interface avec du codage)
             rx_scr_bit = rx_scr_llr<0; % Bits
             rx_scr_bit_d = step(vid, rx_scr_bit, 1500*8);
             rx_scr_oct = step(b2o,rx_scr_bit_d); % Conversion en octet pour le scrambler
-            % Attention ï¿½ la synchro ici
+            % Attention ï¿½ la synchro icilo
             rx_oct     = bitxor(rx_scr_oct,dvb_scramble); % descrambler
-            
             
             %% Compare des erreurs binaires
             tx_bit     = step(o2b,tx_oct);
             rx_bit     = step(o2b,rx_oct);
             err_stat   = step(stat_erreur, tx_bit, rx_bit);
             
+
             %% Destination
             if bool_store_rec_video
                 step(message_destination, rx_oct_dec); % Ecriture du fichier
@@ -143,6 +154,9 @@ for i_snr = 1:length(channel_params.EbN0dB)
         end
     end
     
+  % Minimisr fct periodique. Mais autant de minima que de periode lors de
+  % la sgd. Rien ne dit qu'on convferge vers la même perdiode. On a une
+  % rotation de pi/2 a chaque fois ou des fois. 
    
     ber(i_snr) = err_stat(1);
     if ber(i_snr) > 1e-6
@@ -170,7 +184,7 @@ ylabel('Magnitude')
 legend('Reponse en frequence du filtre de reception', 'Periodogramme du signal en sortie du canal')
 title('Superposition periodogramme de Welch en sortie du canal et en sortie du filtre de reception')
 % constellation r_n
-scatterplot(r_n);
+
 %constellation a_n
 scatterplot(tx_sym);
 %% Tracï¿½ des constellations sans synchronisation pour EbN0dB = 100
